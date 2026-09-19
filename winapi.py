@@ -1,0 +1,151 @@
+# -*- coding: utf-8 -*-
+"""Windows 窗口工具（纯 ctypes，无需额外依赖）。
+
+用于工作流功能：枚举当前打开的窗口、记录/恢复窗口的位置和尺寸。
+非 Windows 平台上所有函数安全降级为“空操作”。
+"""
+
+import os
+import sys
+
+IS_WINDOWS = sys.platform == "win32"
+
+if IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    SWP_NOZORDER = 0x0004
+    SWP_NOACTIVATE = 0x0010
+    SW_RESTORE = 9
+
+    WNDENUMPROC = ctypes.WINFUNCTYPE(
+        wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+    )
+
+    user32.GetWindowTextLengthW.restype = ctypes.c_int
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.GetWindowThreadProcessId.argtypes = [
+        wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
+    ]
+    user32.SetWindowPos.argtypes = [
+        wintypes.HWND, wintypes.HWND,
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT,
+    ]
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetParent.argtypes = [wintypes.HWND]
+    user32.GetParent.restype = wintypes.HWND
+
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.QueryFullProcessImageNameW.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+
+
+def _exe_for_pid(pid):
+    if not IS_WINDOWS or not pid:
+        return ""
+    h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return ""
+    try:
+        size = wintypes.DWORD(32768)
+        buf = ctypes.create_unicode_buffer(size.value)
+        if kernel32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+            return buf.value
+    finally:
+        kernel32.CloseHandle(h)
+    return ""
+
+
+def _window_title(hwnd):
+    n = user32.GetWindowTextLengthW(hwnd)
+    if n <= 0:
+        return ""
+    buf = ctypes.create_unicode_buffer(n + 1)
+    user32.GetWindowTextW(hwnd, buf, n + 1)
+    return buf.value
+
+
+def _pid_for_hwnd(hwnd):
+    pid = wintypes.DWORD(0)
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
+def _rect_for_hwnd(hwnd):
+    r = wintypes.RECT()
+    if user32.GetWindowRect(hwnd, ctypes.byref(r)):
+        return (r.left, r.top, r.right - r.left, r.bottom - r.top)
+    return (0, 0, 0, 0)
+
+
+def list_windows():
+    """返回当前可见、有标题、且是顶层的窗口列表。
+
+    每项：{hwnd, title, pid, exe, x, y, w, h}
+    """
+    if not IS_WINDOWS:
+        return []
+    results = []
+
+    def cb(hwnd, _lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        if user32.GetParent(hwnd):  # 只要顶层窗口
+            return True
+        title = _window_title(hwnd)
+        if not title:
+            return True
+        pid = _pid_for_hwnd(hwnd)
+        x, y, w, h = _rect_for_hwnd(hwnd)
+        if w <= 0 or h <= 0:
+            return True
+        results.append({
+            "hwnd": hwnd, "title": title, "pid": pid,
+            "exe": _exe_for_pid(pid), "x": x, "y": y, "w": w, "h": h,
+        })
+        return True
+
+    user32.EnumWindows(WNDENUMPROC(cb), 0)
+    return results
+
+
+def snapshot_hwnds():
+    """当前所有顶层窗口 hwnd 的集合，用于启动前后做差集找新窗口。"""
+    return {w["hwnd"] for w in list_windows()}
+
+
+def find_window_by_exe(exe_path, exclude=None):
+    """按 exe 文件名找窗口 hwnd，可排除已存在的一批 hwnd。找不到返回 None。"""
+    if not IS_WINDOWS or not exe_path:
+        return None
+    exclude = exclude or set()
+    target = os.path.basename(exe_path).lower()
+    for w in list_windows():
+        if w["hwnd"] in exclude:
+            continue
+        if w["exe"] and os.path.basename(w["exe"]).lower() == target:
+            return w["hwnd"]
+    return None
+
+
+def set_window_rect(hwnd, x, y, w, h):
+    """把窗口移动到 (x,y) 并调整为 w×h。先还原（避免最小化/最大化）。"""
+    if not IS_WINDOWS or not hwnd:
+        return False
+    user32.ShowWindow(hwnd, SW_RESTORE)
+    return bool(user32.SetWindowPos(
+        hwnd, 0, int(x), int(y), int(w), int(h),
+        SWP_NOZORDER | SWP_NOACTIVATE,
+    ))

@@ -1,0 +1,27 @@
+# 打包产物
+build/
+dist/
+*.spec
+井盖桌宠.exe
+*.exe
+
+# 预览 / 临时图
+preview_pixel.png
+inspect_*.png
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 运行期设置（本来存在 %APPDATA%，此处仅防止误放）
+settings.json
