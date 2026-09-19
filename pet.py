@@ -150,11 +150,19 @@ class Pet(QLabel):
             t.rotate(-90)   # 趴左墙：原本朝下的一面转向左（贴墙）
         elif self.surface == "right":
             t.rotate(90)    # 趴右墙
-        elif self.state == "walk" and not self.facing_left:
-            t.scale(-1, 1)  # 地面朝右走时水平翻转
+        elif self.state == "walk":
+            if not self.facing_left:
+                t.scale(-1, 1)   # 走动时按移动方向翻转
+        elif self._on_left_half():
+            t.scale(-1, 1)       # 在屏幕左半边时整体镜像，右半边保持原样
         if not t.isIdentity():
             pix = pix.transformed(t, Qt.SmoothTransformation)
         self.setPixmap(pix)
+
+    def _on_left_half(self):
+        """井盖中心是否在屏幕左半边。"""
+        r = self._screen_rect()
+        return self.x() + self.width() // 2 < r.center().x()
 
     # ---------- 行为 / 物理 ----------
     def _tick(self):
@@ -519,6 +527,21 @@ class Pet(QLabel):
 def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+
+    # 单实例：用共享内存做跨进程锁，已有实例则提示后退出
+    from PySide6.QtCore import QSharedMemory
+    lock = QSharedMemory("manhole-pet-single-instance")
+    if lock.attach():          # 能附加上 = 已有实例在跑
+        lock.detach()
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.information(None, "井盖桌宠", "井盖已经被启动了。")
+        return
+    if not lock.create(1):     # 创建失败通常也意味着已有实例
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.information(None, "井盖桌宠", "井盖已经被启动了。")
+        return
+    app._instance_lock = lock  # 挂到 app 上，防止被回收导致锁提前释放
+
     pet = Pet()
     pet.show()
     sys.exit(app.exec())
