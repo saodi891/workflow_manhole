@@ -90,7 +90,7 @@ assets/
 - 支持 `.png` / `.webp` / `.gif`。
 - 某个文件夹留空 → 自动用井盖占位图顶替。
 
-> 仓库自带一套程序化生成的像素占位帧，脚本见 `scripts\gen_pixel_art.py`，可改配色/造型后重新生成。
+> 仓库默认不带美术资源，各状态文件夹为空时一律使用内置的程序化井盖占位图（见 `assets_loader.py`）。放入你自己的帧图即可替换。
 
 ## 调参数
 
@@ -118,7 +118,7 @@ assets/
 | `winapi.py` | Windows 窗口工具（枚举 / 移动 / 缩放，纯 ctypes） |
 | `config.py` | 所有可调参数 |
 | `requirements.txt` | 依赖清单 |
-| `scripts\` | `install.bat` / `run.bat` / `build.bat` / `gen_pixel_art.py`（会自动切到项目根目录执行） |
+| `scripts\` | `install.bat` / `run.bat` / `build.bat`（会自动切到项目根目录执行） |
 | `assets\` | 美术资源（各状态帧图） |
 
 ## 许可证
