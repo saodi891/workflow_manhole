@@ -1,38 +1,33 @@
 @echo off
-chcp 65001 >nul
 REM ============================================================
-REM  ä¸€é”®æ‰“åŒ…äº•ç›–æ¡Œå® ä¸º exeï¼ˆWindowsï¼‰
-REM  ç¬¬ä¸€æ¬¡ç”¨å…ˆåŒå‡» install.bat è£…ä¾èµ–ï¼Œå†åŒå‡»æœ¬æ–‡ä»¶ã€‚
-REM  æœ¬è„šæœ¬æ”¾åœ¨ scripts\ ä¸‹ï¼Œä¼šè‡ªåŠ¨åˆ‡æ¢åˆ°é¡¹ç›®æ ¹ç›®å½•æ‰§è¡Œã€‚
+REM  Ò»¼ü´ò°ü¾®¸Ç×À³èÎª exe£¨Windows£©
+REM  µÚÒ»´ÎÓÃÏÈË«»÷ install.bat ×°ÒÀÀµ£¬ÔÙË«»÷±¾ÎÄ¼ş¡£
+REM  ±¾½Å±¾·ÅÔÚ scripts Ä¿Â¼ÏÂ£¬»á×Ô¶¯ÇĞ»»µ½ÏîÄ¿¸ùÄ¿Â¼Ö´ĞĞ¡£
 REM ============================================================
 cd /d "%~dp0.."
 
-echo [1/2] æ£€æŸ¥ PyInstaller...
+echo [1/2] ¼ì²é PyInstaller...
 python -m pip show pyinstaller >nul 2>&1
 if errorlevel 1 (
-    echo   æœªå®‰è£…ï¼Œæ­£åœ¨å®‰è£… pyinstaller...
+    echo   Î´°²×°£¬ÕıÔÚ°²×° pyinstaller...
     python -m pip install pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 120
 )
 
-echo [2/2] å¼€å§‹æ‰“åŒ…...
-REM --windowed   ä¸å¼¹é»‘è‰²å‘½ä»¤è¡Œçª—å£
-REM --onefile    æ‰“åŒ…æˆå•ä¸ª exe
-REM --add-data   æŠŠ assets ä¸€èµ·å¡è¿› exeï¼ˆWindows ç”¨åˆ†å·åˆ†éš”ï¼‰
-REM --icon       exe å›¾æ ‡ï¼Œæ ¹ç›®å½•æœ‰ icon.ico å°±ç”¨ï¼ˆå¯é€‰ï¼‰
-REM --distpath . æŠŠ exe ç›´æ¥è¾“å‡ºåˆ°é¡¹ç›®æ ¹ç›®å½•
-REM --workpath / --specpath  æŠŠæ‰“åŒ…ä¸­é—´äº§ç‰©æ”¶è¿› build\ï¼Œä¿æŒæ ¹ç›®å½•å¹²å‡€
+echo [2/2] ¿ªÊ¼´ò°ü...
+REM --windowed   ²»µ¯ºÚÉ«ÃüÁîĞĞ´°¿Ú
+REM --onefile    ´ò°ü³Éµ¥¸ö exe
+REM --add-data   °Ñ assets Ò»ÆğÈû½ø exe£¨Windows ÓÃ·ÖºÅ·Ö¸ô£©
+REM --icon       exe Í¼±ê£¬¸ùÄ¿Â¼ÓĞ icon.ico ¾ÍÓÃ£¨¿ÉÑ¡£©
 set ICON_ARG=
 if exist icon.ico set ICON_ARG=--icon icon.ico
 
-REM add-data æºç”¨ç»å¯¹è·¯å¾„ï¼šå› ä¸º --specpath æ”¹äº† spec æ‰€åœ¨ç›®å½•ï¼Œ
-REM ç›¸å¯¹è·¯å¾„ä¼šä»¥ spec ç›®å½•ä¸ºåŸºå‡†æ‰¾ä¸åˆ° assetsã€‚
 python -m PyInstaller ^
   --noconfirm ^
   --clean ^
   --windowed ^
   --onefile ^
-  --name äº•ç›–æ¡Œå®  ^
-  --add-data "%CD%\assets;assets" ^
+  --name ¾®¸Ç×À³è ^
+  --add-data "%CD%/assets;assets" ^
   %ICON_ARG% ^
   --distpath . ^
   --workpath build ^
@@ -40,5 +35,5 @@ python -m PyInstaller ^
   pet.py
 
 echo.
-echo æ‰“åŒ…å®Œæˆã€‚exe å°±åœ¨é¡¹ç›®æ ¹ç›®å½•ï¼šäº•ç›–æ¡Œå® .exe
+echo ´ò°üÍê³É¡£exe ¾ÍÔÚÏîÄ¿¸ùÄ¿Â¼£º¾®¸Ç×À³è.exe
 pause
