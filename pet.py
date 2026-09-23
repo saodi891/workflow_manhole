@@ -15,6 +15,7 @@ import config
 import settings as settings_mod
 import assets_loader
 import wf_runner
+import configs
 
 
 class Pet(QLabel):
@@ -22,6 +23,9 @@ class Pet(QLabel):
         super().__init__()
         self.settings = settings_mod.load()
         self._settings_dialog = None
+
+        # v0.3：首次运行把旧工作流迁进 config/default.json
+        configs.ensure_ready(self.settings.get("workflow"))
 
         # 无边框 + 工具窗口（不在任务栏显示）；置顶按设置决定
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -147,9 +151,9 @@ class Pet(QLabel):
         pix = frames[self.frame_index % len(frames)]
         t = QTransform()
         if self.surface == "left":
-            t.rotate(-90)   # 趴左墙：原本朝下的一面转向左（贴墙）
+            t.rotate(90)    # 趴左墙：向右转 90 度
         elif self.surface == "right":
-            t.rotate(90)    # 趴右墙
+            t.rotate(-90)   # 趴右墙：向左转 90 度
         elif self.state == "walk":
             if not self.facing_left:
                 t.scale(-1, 1)   # 走动时按移动方向翻转
@@ -430,7 +434,7 @@ class Pet(QLabel):
         m.addAction(act_settings)
 
         act_workflow = QAction("启动工作流", m)
-        act_workflow.setEnabled(bool(self.settings.get("workflow")))
+        act_workflow.setEnabled(bool(self.current_workflow_items()))
         act_workflow.triggered.connect(self._run_workflow)
         m.addAction(act_workflow)
 
@@ -495,8 +499,13 @@ class Pet(QLabel):
         self.set_gravity(on)
         self.persist()
 
+    def current_workflow_items(self):
+        """当前生效配置（active_config 指向的 json）里的程序列表。"""
+        name = self.settings.get("active_config", configs.DEFAULT_NAME)
+        return configs.load_config(name)
+
     def _run_workflow(self):
-        items = self.settings.get("workflow") or []
+        items = self.current_workflow_items()
         if items:
             wf_runner.run(items, progress=lambda msg: self.tray.showMessage(
                 "工作流", msg, QSystemTrayIcon.Information, 1500))

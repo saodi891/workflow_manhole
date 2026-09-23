@@ -26,7 +26,7 @@ python -m PyInstaller ^
   --clean ^
   --windowed ^
   --onefile ^
-  --name ¾®¸Ç×À³è ^
+  --name workflow_manholeV0.3 ^
   --add-data "%CD%/assets;assets" ^
   %ICON_ARG% ^
   --distpath . ^

@@ -45,7 +45,9 @@ def _launch_one(item, progress=None):
     if hwnd:
         # 再稍等一下让窗口初始化完成，避免被程序自身覆盖位置
         time.sleep(0.4)
-        ok = winapi.set_window_rect(hwnd, item["x"], item["y"], item["w"], item["h"])
+        ok = winapi.set_window_rect(
+            hwnd, item["x"], item["y"], item["w"], item["h"],
+            maximized=item.get("maximized", False))
         if progress:
             progress(f"已还原窗口：{name}" if ok else f"未能还原窗口：{name}")
     elif progress:

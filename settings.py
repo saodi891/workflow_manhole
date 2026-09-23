@@ -34,7 +34,8 @@ DEFAULTS = {
     "behavior": "idle",     # idle=待机不动（默认） / wander=散步
     "gravity": False,        # 默认无重力；无重力时可趴在屏幕两侧墙壁上
     "style_path": "",        # 风格包路径（.zip 或文件夹）；空=默认井盖
-    "workflow": [],          # [{name, path, args:[], restore:bool, x,y,w,h}]
+    "workflow": [],          # 旧版工作流；v0.3 起仅作首次迁移源，实际存 config/*.json
+    "active_config": "default.json",  # 当前生效的工作流配置文件名（config/ 下）
 }
 
 
@@ -55,6 +56,8 @@ def load():
         result["behavior"] = "wander"
     if not isinstance(result["workflow"], list):
         result["workflow"] = []
+    if not isinstance(result.get("active_config"), str) or not result["active_config"]:
+        result["active_config"] = "default.json"
     return result
 
 
@@ -68,11 +71,12 @@ def save(data):
 
 
 def new_workflow_item(name="", path="", args=None, restore=False,
-                      x=0, y=0, w=0, h=0):
+                      x=0, y=0, w=0, h=0, maximized=False):
     return {
         "name": name or (os.path.basename(path) if path else "程序"),
         "path": path,
         "args": list(args or []),
         "restore": bool(restore),
         "x": int(x), "y": int(y), "w": int(w), "h": int(h),
+        "maximized": bool(maximized),
     }

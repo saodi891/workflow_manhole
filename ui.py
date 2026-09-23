@@ -11,12 +11,13 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget, QListWidget,
     QListWidgetItem, QPushButton, QLabel, QRadioButton, QButtonGroup,
     QCheckBox, QFileDialog, QLineEdit, QSpinBox, QMessageBox, QFormLayout,
-    QDialogButtonBox, QGroupBox,
+    QDialogButtonBox, QGroupBox, QComboBox, QInputDialog,
 )
 
 import settings as settings_mod
 import wf_runner
 import winapi
+import configs
 
 
 class WindowPicker(QDialog):
@@ -60,6 +61,7 @@ class WindowPicker(QDialog):
                     name=os.path.splitext(os.path.basename(w["exe"]))[0],
                     path=w["exe"], restore=True,
                     x=w["x"], y=w["y"], w=w["w"], h=w["h"],
+                    maximized=w.get("maximized", False),
                 ))
         return out
 
@@ -129,6 +131,12 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("井盖设置")
         self.resize(560, 480)
 
+        # v0.3：工作流数据来自 config/ 下当前生效的 json（active_config 指向）
+        self._active = self.s.get("active_config", configs.DEFAULT_NAME)
+        if self._active not in configs.list_configs():
+            self._active = configs.DEFAULT_NAME
+        self._items = configs.load_config(self._active)
+
         tabs = QTabWidget()
         tabs.addTab(self._tab_workflow(), "启动工作流")
         tabs.addTab(self._tab_style(), "更改风格")
@@ -145,9 +153,31 @@ class SettingsDialog(QDialog):
     def _tab_workflow(self):
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.addWidget(QLabel("按顺序启动下列程序。勾了“还原窗口”的会被移动到记录的位置和尺寸。"))
+
+        # 顶部：配置文件管理（切换 / 新建 / 另存为 / 删除 / 导入 / 暂存）
+        cfg_row = QHBoxLayout()
+        cfg_row.addWidget(QLabel("当前配置"))
+        self.cfg_combo = QComboBox()
+        self.cfg_combo.currentIndexChanged.connect(self._cfg_on_combo)
+        cfg_row.addWidget(self.cfg_combo, 1)
+        lay.addLayout(cfg_row)
+
+        cfg_btn_row = QHBoxLayout()
+        for text, fn in (
+            ("新建", self._cfg_new),
+            ("另存为", self._cfg_saveas),
+            ("删除", self._cfg_delete),
+            ("导入配置", self._cfg_import),
+            ("暂存当前桌面→临时", self._cfg_stash_latest),
+        ):
+            b = QPushButton(text); b.clicked.connect(fn); cfg_btn_row.addWidget(b)
+        lay.addLayout(cfg_btn_row)
+
+        lay.addWidget(QLabel(
+            "按顺序启动下列程序。勾了“还原窗口”的会被移动到记录的位置和尺寸。\n"
+            "下面的增删改会实时保存到上方选中的配置文件里。"
+        ))
         self.wf_list = QListWidget()
-        self._refresh_wf()
         lay.addWidget(self.wf_list)
 
         row = QHBoxLayout()
@@ -169,22 +199,140 @@ class SettingsDialog(QDialog):
         self.wf_status = QLabel("")
         run_row.addWidget(self.wf_status, 1)
         lay.addLayout(run_row)
+
+        self._refresh_cfg_combo()
+        self._refresh_wf()
         return w
 
+    # ---------- 配置文件管理 ----------
+    def _refresh_cfg_combo(self):
+        """按 configs.list_configs 的顺序重建下拉框，选中当前 active。"""
+        self.cfg_combo.blockSignals(True)
+        self.cfg_combo.clear()
+        names = configs.list_configs()
+        for name in names:
+            self.cfg_combo.addItem(configs.display_label(name), name)
+        if self._active in names:
+            self.cfg_combo.setCurrentIndex(names.index(self._active))
+        self.cfg_combo.blockSignals(False)
+
+    def _cfg_on_combo(self, idx):
+        if idx < 0:
+            return
+        name = self.cfg_combo.itemData(idx)
+        if name and name != self._active:
+            self._cfg_switch(name)
+
+    def _cfg_switch(self, name):
+        """切换当前生效配置：更新指针、持久化、重载列表。"""
+        self._active = name
+        self.s["active_config"] = name
+        self.pet.persist()
+        self._items = configs.load_config(name)
+        self._refresh_wf()
+
+    def _cfg_new(self):
+        text, ok = QInputDialog.getText(self, "新建配置", "配置文件名：")
+        if not ok:
+            return
+        name = configs.unique_name(configs.normalize_name(text))
+        if not configs.save_config(name, []):
+            self._warn_write()
+            return
+        self._refresh_cfg_combo()
+        self._select_and_switch(name)
+
+    def _cfg_saveas(self):
+        text, ok = QInputDialog.getText(
+            self, "另存为", "把当前列表另存为：", text=self._active)
+        if not ok:
+            return
+        name = configs.unique_name(configs.normalize_name(text))
+        if not configs.save_config(name, self._items):
+            self._warn_write()
+            return
+        self._refresh_cfg_combo()
+        self._select_and_switch(name)
+
+    def _cfg_delete(self):
+        name = self._active
+        if name in configs.PROTECTED:
+            QMessageBox.information(
+                self, "删除",
+                f"{name} 是内置配置，删除只会清空它的列表，不会删掉文件。")
+        target = configs.delete_config(name)
+        self._refresh_cfg_combo()
+        self._select_and_switch(target)
+
+    def _cfg_import(self):
+        fn, _ = QFileDialog.getOpenFileName(
+            self, "导入工作流配置", "", "配置 (*.json);;所有文件 (*.*)")
+        if not fn:
+            return
+        ok, result = configs.import_config(fn)
+        if not ok:
+            QMessageBox.warning(self, "导入配置", f"导入失败：{result}")
+            return
+        self._refresh_cfg_combo()
+        self._select_and_switch(result)
+
+    def _cfg_stash_latest(self):
+        """抓当前桌面上所有打开着的窗口，写进 latest.json 并切过去。"""
+        items = []
+        for win in winapi.list_windows():
+            if not win.get("exe"):
+                continue
+            items.append(settings_mod.new_workflow_item(
+                name=os.path.splitext(os.path.basename(win["exe"]))[0],
+                path=win["exe"], restore=True,
+                x=win["x"], y=win["y"], w=win["w"], h=win["h"],
+                maximized=win.get("maximized", False),
+            ))
+        if not items:
+            QMessageBox.information(
+                self, "暂存", "没抓到有程序的窗口，latest 未改动。")
+            return
+        if not configs.save_config(configs.LATEST_NAME, items):
+            self._warn_write()
+            return
+        QMessageBox.information(
+            self, "暂存",
+            f"已把当前 {len(items)} 个窗口快照存进 {configs.LATEST_NAME}。")
+        self._refresh_cfg_combo()
+        self._select_and_switch(configs.LATEST_NAME)
+
+    def _select_and_switch(self, name):
+        """把下拉框选到 name（触发切换）；已是当前则手动切一次。"""
+        for i in range(self.cfg_combo.count()):
+            if self.cfg_combo.itemData(i) == name:
+                if self.cfg_combo.currentIndex() == i:
+                    self._cfg_switch(name)
+                else:
+                    self.cfg_combo.setCurrentIndex(i)
+                return
+        self._cfg_switch(name)
+
+    def _warn_write(self):
+        QMessageBox.warning(
+            self, "无法保存",
+            "写入 config 文件夹失败，可能是井盖被放在了没有写权限的目录"
+            "（比如 C:\\Program Files）。\n请把井盖挪到普通目录再试。")
+
+    # ---------- 列表（作用于当前配置） ----------
     def _refresh_wf(self):
         self.wf_list.clear()
-        for it in self.s["workflow"]:
+        for it in self._items:
             mark = "  [还原窗口]" if it.get("restore") else ""
             self.wf_list.addItem(f'{it.get("name")}  ({it.get("path")}){mark}')
 
     def _wf_selected_row(self):
         r = self.wf_list.currentRow()
-        return r if 0 <= r < len(self.s["workflow"]) else -1
+        return r if 0 <= r < len(self._items) else -1
 
     def _wf_add(self):
         fn, _ = QFileDialog.getOpenFileName(self, "选择程序", "", "程序 (*.exe);;所有文件 (*.*)")
         if fn:
-            self.s["workflow"].append(settings_mod.new_workflow_item(path=fn))
+            self._items.append(settings_mod.new_workflow_item(path=fn))
             self._commit_wf()
 
     def _wf_record(self):
@@ -192,23 +340,23 @@ class SettingsDialog(QDialog):
         if dlg.exec() == QDialog.Accepted:
             picked = dlg.selected()
             if picked:
-                self.s["workflow"].extend(picked)
+                self._items.extend(picked)
                 self._commit_wf()
 
     def _wf_edit(self):
         r = self._wf_selected_row()
         if r < 0:
             return
-        dlg = ItemEditor(self.s["workflow"][r], self)
+        dlg = ItemEditor(self._items[r], self)
         if dlg.exec() == QDialog.Accepted:
-            self.s["workflow"][r] = dlg.result_item()
+            self._items[r] = dlg.result_item()
             self._commit_wf()
 
     def _wf_del(self):
         r = self._wf_selected_row()
         if r < 0:
             return
-        del self.s["workflow"][r]
+        del self._items[r]
         self._commit_wf()
 
     def _wf_move(self, delta):
@@ -216,23 +364,27 @@ class SettingsDialog(QDialog):
         if r < 0:
             return
         nr = r + delta
-        if 0 <= nr < len(self.s["workflow"]):
-            wf = self.s["workflow"]
-            wf[r], wf[nr] = wf[nr], wf[r]
+        if 0 <= nr < len(self._items):
+            self._items[r], self._items[nr] = self._items[nr], self._items[r]
             self._commit_wf()
             self.wf_list.setCurrentRow(nr)
 
     def _commit_wf(self):
-        self.pet.persist()
+        """把当前列表写回当前配置文件。latest 内容变化可能影响下拉排序。"""
+        if not configs.save_config(self._active, self._items):
+            self._warn_write()
+            return
         self._refresh_wf()
+        if self._active == configs.LATEST_NAME:
+            self._refresh_cfg_combo()
 
     def _wf_run(self):
-        if not self.s["workflow"]:
-            QMessageBox.information(self, "工作流", "还没有添加任何程序。")
+        if not self._items:
+            QMessageBox.information(self, "工作流", "当前配置里还没有添加任何程序。")
             return
         self.wf_status.setText("启动中…")
         wf_runner.run(
-            self.s["workflow"],
+            self._items,
             progress=lambda msg: self.wf_status.setText(msg),
         )
 
