@@ -21,6 +21,7 @@ if IS_WINDOWS:
     SWP_NOZORDER = 0x0004
     SWP_NOACTIVATE = 0x0010
     SW_SHOWNORMAL = 1
+    SW_SHOWMINIMIZED = 2
     SW_MAXIMIZE = 3
     SW_RESTORE = 9
 
@@ -109,23 +110,29 @@ def _rect_for_hwnd(hwnd):
     return (0, 0, 0, 0)
 
 
-def _placement_for_hwnd(hwnd):
-    """用 GetWindowPlacement 取「还原态」的位置尺寸 + 是否最大化。
+def _rect_state_for_hwnd(hwnd):
+    """取窗口「所见即所存」的屏幕坐标位置尺寸 + 是否最大化。
 
-    比 GetWindowRect 可靠：最小化/最大化的窗口也能拿到正常还原坐标，
-    不会出现 -32000 那种离屏垃圾值。返回 (x, y, w, h, maximized) 或 None。
+    关键：用 GetWindowRect 拿真实屏幕坐标——这正是还原时 SetWindowPos 所需
+    的坐标系。之前用 GetWindowPlacement.rcNormalPosition 会得到「工作区坐标」
+    （相对任务栏工作区，非屏幕坐标），拿去喂 SetWindowPos 会整体偏移，且最大化/
+    贴边窗口存的是还原态尺寸而非当前可见尺寸——这就是暂存后位置尺寸错乱的根因。
+    最小化窗口没有可见的桌面位置，直接跳过。返回 (x, y, w, h, maximized) 或 None。
     """
     wp = _WINDOWPLACEMENT()
     wp.length = ctypes.sizeof(_WINDOWPLACEMENT)
-    if not user32.GetWindowPlacement(hwnd, ctypes.byref(wp)):
+    show = SW_SHOWNORMAL
+    if user32.GetWindowPlacement(hwnd, ctypes.byref(wp)):
+        show = wp.showCmd
+    if show == SW_SHOWMINIMIZED:
+        return None  # 最小化窗口无桌面位置，跳过（GetWindowRect 会给 -32000 垃圾值）
+    r = wintypes.RECT()
+    if not user32.GetWindowRect(hwnd, ctypes.byref(r)):
         return None
-    r = wp.rcNormalPosition
     x, y, w, h = r.left, r.top, r.right - r.left, r.bottom - r.top
-    # -32000 那类离屏哨兵值在高 DPI 进程里会被缩放（如 ÷1.5≈-21333），
-    # 所以用 -20000 兜底：没有正常窗口会停在离屏两万像素外。
     if w <= 0 or h <= 0 or x < -20000 or y < -20000:
-        return None  # 从未正常显示过的窗口，坐标不可信
-    return (x, y, w, h, wp.showCmd == SW_MAXIMIZE)
+        return None  # 离屏/异常坐标，不可信
+    return (x, y, w, h, show == SW_MAXIMIZE)
 
 
 def list_windows():
@@ -146,9 +153,9 @@ def list_windows():
         if not title:
             return True
         pid = _pid_for_hwnd(hwnd)
-        # 用 GetWindowPlacement 的还原坐标（最小化/最大化也可靠）；
-        # 拿不到可信坐标（离屏/从未显示）就跳过，避免记录垃圾位置。
-        pl = _placement_for_hwnd(hwnd)
+        # 用 GetWindowRect 的真实屏幕坐标（所见即所存）；最小化/离屏窗口
+        # 拿不到可信坐标就跳过，避免记录垃圾位置。
+        pl = _rect_state_for_hwnd(hwnd)
         if pl is None:
             return True
         x, y, w, h, maximized = pl

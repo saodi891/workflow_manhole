@@ -10,7 +10,7 @@
 
 1. 双击 `scripts\install.bat` 装依赖（只需一次，需要联网）
 2. 双击 `scripts\run.bat` 直接运行
-3. 双击 `scripts\build.bat` 打包成 exe，成品就在项目根目录：`workflow_manholeV0.3.exe`
+3. 双击 `scripts\build.bat` 打包成 exe，成品就在项目根目录：`workflow_manholeV0.4.exe`
 
 > 需要电脑装了 Python 3.10+（命令行 `python --version` 能看到版本号即可）。
 > 打包好的 exe 拷到别的电脑（Win10 及以上）可直接双击运行，对方无需装 Python。
@@ -113,7 +113,7 @@ assets/
 
 ## exe 图标（可选）
 
-想让 exe 有自定义图标，把一个 `icon.ico` 放到项目根目录（和 `workflow_manholeV0.3.exe` 同级），再跑 `scripts\build.bat` 会自动用上
+想让 exe 有自定义图标，把一个 `icon.ico` 放到项目根目录（和 `workflow_manholeV0.4.exe` 同级），再跑 `scripts\build.bat` 会自动用上
 
 ## 文件说明
 
