@@ -71,7 +71,13 @@ def save(data):
 
 
 def new_workflow_item(name="", path="", args=None, restore=False,
-                      x=0, y=0, w=0, h=0, maximized=False):
+                      x=0, y=0, w=0, h=0, maximized=False,
+                      type="app", url="", folder=""):
+    """一个工作流项。type 区分三类还原方式：
+    - app：普通程序，按 path+args 启动（默认，向后兼容旧配置）。
+    - browser：浏览器窗口，url 存活动标签地址，还原时新开窗口到该地址。
+    - explorer：资源管理器窗口，folder 存文件夹路径，还原时 explorer 打开它。
+    """
     return {
         "name": name or (os.path.basename(path) if path else "程序"),
         "path": path,
@@ -79,4 +85,7 @@ def new_workflow_item(name="", path="", args=None, restore=False,
         "restore": bool(restore),
         "x": int(x), "y": int(y), "w": int(w), "h": int(h),
         "maximized": bool(maximized),
+        "type": type or "app",
+        "url": url or "",
+        "folder": folder or "",
     }

@@ -175,6 +175,12 @@ def snapshot_hwnds():
     return {w["hwnd"] for w in list_windows()}
 
 
+def own_exe_basename():
+    """井盖自身进程的 exe 文件名（小写），用于工作流启动时兜底跳过井盖本身。
+    冻结成 exe 后是 workflow_manholeVx.exe；开发态一般是 python.exe。"""
+    return os.path.basename(sys.executable).lower()
+
+
 def find_window_by_exe(exe_path, exclude=None):
     """按 exe 文件名找窗口 hwnd，可排除已存在的一批 hwnd。找不到返回 None。"""
     if not IS_WINDOWS or not exe_path:

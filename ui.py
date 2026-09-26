@@ -17,7 +17,45 @@ from PySide6.QtWidgets import (
 import settings as settings_mod
 import wf_runner
 import winapi
+import winext
 import configs
+
+
+def _capture_desktop_items():
+    """枚举当前桌面窗口 → [(item, label)]。
+    - 跳过井盖自身进程的所有窗口（主窗口 / 设置对话框 / 面板）。
+    - 识别浏览器窗口抓活动标签 URL、资源管理器窗口抓文件夹路径。
+    """
+    own_pid = os.getpid()
+    folder_map = winext.explorer_folders()
+    out = []
+    for w in winapi.list_windows():
+        if not w["exe"]:
+            continue
+        if w.get("pid") == own_pid:
+            continue  # 跳过井盖本身与其设置界面
+        base = os.path.basename(w["exe"])
+        wtype = winext.classify(base, w["hwnd"], folder_map)
+        url = folder = ""
+        extra = ""
+        name = os.path.splitext(base)[0]
+        if wtype == "browser":
+            url = winext.browser_active_url(w["hwnd"])
+            extra = f"  →  {url}" if url else "  →  (未取到地址)"
+        elif wtype == "explorer":
+            folder = folder_map.get(w["hwnd"], "")
+            name = os.path.basename(folder.rstrip("\\/")) or "资源管理器"
+            extra = f"  →  {folder}"
+        item = settings_mod.new_workflow_item(
+            name=name, path=w["exe"], restore=True,
+            x=w["x"], y=w["y"], w=w["w"], h=w["h"],
+            maximized=w.get("maximized", False),
+            type=wtype, url=url, folder=folder,
+        )
+        label = (f'{w["title"]}  —  {base}  '
+                 f'[{w["w"]}×{w["h"]} @({w["x"]},{w["y"]})]{extra}')
+        out.append((item, label))
+    return out
 
 
 class WindowPicker(QDialog):
@@ -26,23 +64,20 @@ class WindowPicker(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("记录已打开的窗口")
-        self.resize(520, 420)
+        self.resize(560, 440)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel(
             "先把窗口摆到你想要的位置和大小，再在这里勾选。\n"
+            "浏览器会记住当前标签地址，资源管理器会记住打开的文件夹。\n"
             "启动工作流时会还原到你勾选那一刻的位置和尺寸。"
         ))
         self.list = QListWidget()
         self.list.setSelectionMode(QListWidget.NoSelection)
-        for w in winapi.list_windows():
-            if not w["exe"]:
-                continue
-            label = f'{w["title"]}  —  {os.path.basename(w["exe"])}  ' \
-                    f'[{w["w"]}×{w["h"]} @({w["x"]},{w["y"]})]'
+        for item, label in _capture_desktop_items():
             it = QListWidgetItem(label)
             it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Unchecked)
-            it.setData(Qt.UserRole, w)
+            it.setData(Qt.UserRole, item)
             self.list.addItem(it)
         lay.addWidget(self.list)
 
@@ -56,13 +91,7 @@ class WindowPicker(QDialog):
         for i in range(self.list.count()):
             it = self.list.item(i)
             if it.checkState() == Qt.Checked:
-                w = it.data(Qt.UserRole)
-                out.append(settings_mod.new_workflow_item(
-                    name=os.path.splitext(os.path.basename(w["exe"]))[0],
-                    path=w["exe"], restore=True,
-                    x=w["x"], y=w["y"], w=w["w"], h=w["h"],
-                    maximized=w.get("maximized", False),
-                ))
+                out.append(it.data(Qt.UserRole))
         return out
 
 
@@ -87,6 +116,16 @@ class ItemEditor(QDialog):
         w = QWidget(); w.setLayout(row)
         form.addRow("程序路径", w)
         form.addRow("启动参数", self.args)
+
+        # 浏览器 / 资源管理器项：多一行地址或文件夹（app 类型不显示）
+        self._type = self.item.get("type", "app")
+        self.addr = None
+        if self._type == "browser":
+            self.addr = QLineEdit(self.item.get("url", ""))
+            form.addRow("网址", self.addr)
+        elif self._type == "explorer":
+            self.addr = QLineEdit(self.item.get("folder", ""))
+            form.addRow("文件夹", self.addr)
 
         self.restore = QCheckBox("启动后还原到下面的位置和尺寸")
         self.restore.setChecked(bool(self.item.get("restore")))
@@ -116,10 +155,17 @@ class ItemEditor(QDialog):
 
     def result_item(self):
         args = [a for a in self.args.text().split(" ") if a]
+        url = folder = ""
+        if self._type == "browser" and self.addr is not None:
+            url = self.addr.text().strip()
+        elif self._type == "explorer" and self.addr is not None:
+            folder = self.addr.text().strip()
         return settings_mod.new_workflow_item(
             name=self.name.text(), path=self.path.text(), args=args,
             restore=self.restore.isChecked(),
             x=self.x.value(), y=self.y.value(), w=self.w.value(), h=self.h.value(),
+            maximized=self.item.get("maximized", False),
+            type=self._type, url=url, folder=folder,
         )
 
 
@@ -278,16 +324,7 @@ class SettingsDialog(QDialog):
 
     def _cfg_stash_latest(self):
         """抓当前桌面上所有打开着的窗口，写进 latest.json 并切过去。"""
-        items = []
-        for win in winapi.list_windows():
-            if not win.get("exe"):
-                continue
-            items.append(settings_mod.new_workflow_item(
-                name=os.path.splitext(os.path.basename(win["exe"]))[0],
-                path=win["exe"], restore=True,
-                x=win["x"], y=win["y"], w=win["w"], h=win["h"],
-                maximized=win.get("maximized", False),
-            ))
+        items = [item for item, _label in _capture_desktop_items()]
         if not items:
             QMessageBox.information(
                 self, "暂存", "没抓到有程序的窗口，latest 未改动。")

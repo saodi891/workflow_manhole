@@ -26,7 +26,10 @@ python -m PyInstaller ^
   --clean ^
   --windowed ^
   --onefile ^
-  --name workflow_manholeV0.4 ^
+  --collect-all uiautomation ^
+  --hidden-import win32com.client ^
+  --hidden-import win32timezone ^
+  --name workflow_manholeV0.5 ^
   --add-data "%CD%/assets;assets" ^
   %ICON_ARG% ^
   --distpath . ^
